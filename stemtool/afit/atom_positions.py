@@ -85,47 +85,6 @@ def peaks_vis(data_image, dist=10, thresh=0.1, imsize=(20, 20)):
     return peaks
 
 
-def refine_atoms(image_data, positions):
-    """
-    Single Gaussian Peak Atom Refinement
-
-    Parameters
-    ----------
-    image_data: ndarray
-                Original atomic resolution image
-    positions:  ndarray
-                Intensity minima/maxima list
-
-    Returns
-    -------
-    ref_arr: ndarray
-             List of refined peak positions as y, x
-
-    Notes
-    -----
-    This is the single Gaussian peak fitting technique
-    where the initial atom positions are fitted with a
-    single 2D Gaussian function. The center of the Gaussian
-    is returned as the refined atom position.
-    """
-    warnings.filterwarnings("ignore")
-    no_pos = len(positions)
-    dist = np.empty(no_pos, dtype=float)
-    ccd = np.empty(no_pos, dtype=float)
-    for ii in trange(no_pos):
-        ccd = np.sum(((positions[:, 0:2] - positions[ii, 0:2]) ** 2), axis=1)
-        dist[ii] = (np.amin(ccd[ccd > 0])) ** 0.5
-    med_dist = 0.5 * np.median(dist)
-    ref_arr = np.empty((no_pos, 7), dtype=float)
-    for ii in trange(no_pos):
-        pos_x = positions[ii, 1]
-        pos_y = positions[ii, 0]
-        refined_ii = st.util.fit_gaussian2D_mask(image_data, pos_x, pos_y, med_dist)
-        ref_arr[ii, 0:2] = np.flip(refined_ii[0:2])
-        ref_arr[ii, 2:7] = refined_ii[2:7]
-    return ref_arr
-
-
 def mpfit(
     main_image,
     initial_peaks,
@@ -846,7 +805,7 @@ def med_dist(positions):
     return med_dist
 
 
-
+"""
 def refine_atoms(image_data, positions, ref_arr, med_dist):
     for ii in np.arange(len(positions)):
         pos_x = positions[ii, 1]
@@ -855,7 +814,31 @@ def refine_atoms(image_data, positions, ref_arr, med_dist):
         ref_arr[ii, 0:2] = np.flip(refined_ii[0:2])
         ref_arr[ii, 2:6] = refined_ii[2:6]
         ref_arr[ii, -1] = refined_ii[-1] - 1
-
+"""
+def refine_atoms(image_data, positions, ref_arr, med_dist, parallel : str = None):
+    if parallel == None: # 並列計算なし
+        for ii in np.arange(len(positions)):
+            pos_x = positions[ii, 1]
+            pos_y = positions[ii, 0]
+            refined_ii = st.util.fit_gaussian2D_mask(1 + image_data, pos_x, pos_y, med_dist)
+            ref_arr[ii, 0:2] = np.flip(refined_ii[0:2])
+            ref_arr[ii, 2:6] = refined_ii[2:6]
+            ref_arr[ii, -1] = refined_ii[-1] - 1
+    elif parallel == "multithread": # multithreadingを利用して高速化
+        from concurrent.futures import ProcessPoolExecutor
+        from tqdm import tqdm
+        import itertools
+        import os
+        print("parallel calc ready")
+        with ProcessPoolExecutor(max_workers=os.cpu_count() // 2) as executor:  
+            # itertools.repeatをもちいてメモリを削減
+            result = list(tqdm(executor.map(st.util.fit_gaussian2D_mask, itertools.repeat(1+image_data),[pos[1] for pos in positions],[pos[0] for pos in positions],itertools.repeat(med_dist)),desc="parallel calc started" ,total=len(positions)))
+        for ii,refined_ii in enumerate(result):
+            ref_arr[ii, 0:2] = np.flip(refined_ii[0:2])
+            ref_arr[ii, 2:6] = refined_ii[2:6]
+            ref_arr[ii, -1] = refined_ii[-1] - 1
+    elif parallel == "mpi":
+        pass
 
 class atom_fit(object):
     """
@@ -1139,7 +1122,7 @@ class atom_fit(object):
         )
 
         # Run the JIT compiled faster code on the full dataset
-        st.afit.refine_atoms(self.imcleaned, self.peaks, refined_peaks, md)
+        refine_atoms(self.imcleaned, self.peaks, refined_peaks, md, parallel = 'multithread')
         self.refined_peaks = refined_peaks
         self.refining_check = True
 
