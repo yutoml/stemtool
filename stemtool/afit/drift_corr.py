@@ -278,7 +278,7 @@ class multi_image_drift(object):
         at.patch.set_boxstyle("round, pad= 0., rounding_size= 0.2")
         ax2.add_artist(at)
 
-        sb = np.zeros((10, 1000), dtype=np.float)
+        sb = np.zeros((10, 1000), dtype=float)
         for ii in range(10):
             sb[ii, :] = np.linspace(-vm, vm, 1000)
         ax3.imshow(sb, cmap="RdBu_r")

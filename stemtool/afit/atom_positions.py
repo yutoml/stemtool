@@ -6,6 +6,7 @@ import scipy.optimize as spo
 import scipy.interpolate as scinterp
 import matplotlib_scalebar.scalebar as mpss
 import stemtool as st
+import warnings
 from tqdm.auto import trange
 from typing import Any, Tuple, Union
 from nptyping import NDArray, Shape, Int, Float, Bool, Complex
@@ -65,12 +66,12 @@ def peaks_vis(data_image, dist=10, thresh=0.1, imsize=(20, 20)):
     data_image = (data_image - np.amin(data_image)) / (
         np.amax(data_image) - np.amin(data_image)
     )
-    thresh_arr = np.array(data_image > thresh, dtype=np.float)
+    thresh_arr = np.array(data_image > thresh, dtype=float)
     data_thresh = (data_image * thresh_arr) - thresh
     data_thresh[data_thresh < 0] = 0
     data_thresh = data_thresh / (1 - thresh)
     data_peaks = skfeat.peak_local_max(
-        data_thresh, min_distance=int(dist / 3), indices=False
+        data_thresh, min_distance=int(dist / 3)
     )
     peak_labels = scnd.measurements.label(data_peaks)[0]
     merged_peaks = scnd.measurements.center_of_mass(
@@ -109,13 +110,13 @@ def refine_atoms(image_data, positions):
     """
     warnings.filterwarnings("ignore")
     no_pos = len(positions)
-    dist = np.empty(no_pos, dtype=np.float)
-    ccd = np.empty(no_pos, dtype=np.float)
+    dist = np.empty(no_pos, dtype=float)
+    ccd = np.empty(no_pos, dtype=float)
     for ii in trange(no_pos):
         ccd = np.sum(((positions[:, 0:2] - positions[ii, 0:2]) ** 2), axis=1)
         dist[ii] = (np.amin(ccd[ccd > 0])) ** 0.5
     med_dist = 0.5 * np.median(dist)
-    ref_arr = np.empty((no_pos, 7), dtype=np.float)
+    ref_arr = np.empty((no_pos, 7), dtype=float)
     for ii in trange(no_pos):
         pos_x = positions[ii, 1]
         pos_y = positions[ii, 0]
@@ -184,10 +185,10 @@ def mpfit(
         ccd = np.sum(((initial_peaks[:, 0:2] - initial_peaks[ii, 0:2]) ** 2), axis=1)
         dist[ii] = (np.amin(ccd[ccd > 0])) ** 0.5
     med_dist = np.median(dist)
-    mpfit_peaks = np.zeros_like(initial_peaks, dtype=np.float)
+    mpfit_peaks = np.zeros_like(initial_peaks, dtype=float)
     yy, xx = np.mgrid[0 : main_image.shape[0], 0 : main_image.shape[1]]
-    cvals = np.zeros((peak_runs, 4), dtype=np.float)
-    peak_vals = np.zeros((len(initial_peaks), peak_runs, 4), dtype=np.float)
+    cvals = np.zeros((peak_runs, 4), dtype=float)
+    peak_vals = np.zeros((len(initial_peaks), peak_runs, 4), dtype=float)
     for jj in np.arange(len(initial_peaks)):
         ystart = initial_peaks[jj, 0]
         xstart = initial_peaks[jj, 1]
@@ -314,7 +315,7 @@ def mpfit_voronoi(
         ccd = np.sum(((initial_peaks[:, 0:2] - initial_peaks[ii, 0:2]) ** 2), axis=1)
         distm[ii] = (np.amin(ccd[ccd > 0])) ** 0.5
     med_dist = np.median(distm)
-    mpfit_peaks = np.zeros_like(initial_peaks, dtype=np.float)
+    mpfit_peaks = np.zeros_like(initial_peaks, dtype=float)
     yy, xx = np.mgrid[0 : main_image.shape[0], 0 : main_image.shape[1]]
     cutoff = med_dist * 2.5
     for jj in np.arange(len(initial_peaks)):
@@ -343,7 +344,7 @@ def mpfit_voronoi(
         vor_dist = np.amax((((xvor - xpos) ** 2) + ((yvor - ypos) ** 2)) ** 0.5)
         zcalc = np.zeros_like(zvor)
         xy = (xvor, yvor)
-        cvals = np.zeros((peak_runs, 4), dtype=np.float)
+        cvals = np.zeros((peak_runs, 4), dtype=float)
         for ii in np.arange(peak_runs):
             zvor = zvor - zcalc
             zgaus = (zvor - np.amin(zvor)) / (np.amax(zvor) - np.amin(zvor))
@@ -826,10 +827,18 @@ def create_circmask(image, center, radius, g_val=3, flip=True):
 
 
 def med_dist(positions):
+    """距離の中央値を計算 Calc the median of distances. distances are the distance of each peaks
+
+    Args:
+        positions (_type_): positions of peaks
+
+    Returns:
+        float: median of distance
+    """
     warnings.filterwarnings("ignore")
     no_pos = len(positions)
-    dist = np.empty(no_pos, dtype=np.float)
-    ccd = np.empty(no_pos, dtype=np.float)
+    dist = np.empty(no_pos, dtype=float)
+    ccd = np.empty(no_pos, dtype=float)
     for ii in np.arange(no_pos):
         ccd = np.sum(((positions[:, 0:2] - positions[ii, 0:2]) ** 2), axis=1)
         dist[ii] = (np.amin(ccd[ccd > 0])) ** 0.5
@@ -1071,6 +1080,15 @@ class atom_fit(object):
         self.reference_check = True
 
     def peaks_vis(self, dist, thresh, gfilt=2, imsize=(15, 15), spot_color="c"):
+        """局所極大を見つける
+
+        Args:
+            dist (_type_): _description_
+            thresh (_type_): _description_
+            gfilt (int, optional): _description_. Defaults to 2.
+            imsize (tuple, optional): _description_. Defaults to (15, 15).
+            spot_color (str, optional): _description_. Defaults to "c".
+        """
         if not self.reference_check:
             self.ref_reg = np.ones_like(self.imcleaned, dtype=bool)
         pixel_dist = dist / self.calib
@@ -1081,14 +1099,20 @@ class atom_fit(object):
         )
         self.data_thresh[self.data_thresh < 0] = 0
         data_peaks = skfeat.peak_local_max(
-            self.data_thresh, min_distance=int(pixel_dist / 3), indices=False
+            self.data_thresh, min_distance=int(pixel_dist / 3)
         )
-        peak_labels = scnd.measurements.label(data_peaks)[0]
+        # 新しいscipyではmaskを返してくれなくなったので自作
+        peak_mask = np.zeros_like(self.data_thresh, dtype=bool)
+        peak_mask[tuple(data_peaks.T)] = True
+        
+        # labelは連続した領域に番号付けする
+        peak_labels = scnd.measurements.label(peak_mask)[0]
+        # center_of_massは上記labelで判定された領域それぞれの重心を求める
         merged_peaks = scnd.measurements.center_of_mass(
-            data_peaks, peak_labels, range(1, np.max(peak_labels) + 1)
+            peak_mask, peak_labels, range(1, np.max(peak_labels) + 1)
         )
         peaks = np.array(merged_peaks)
-        self.peaks = (st.afit.remove_close_vals(peaks, pixel_dist)).astype(np.float)
+        self.peaks = (st.afit.remove_close_vals(peaks, pixel_dist)).astype(float)
         spot_size = int(0.5 * np.mean(np.asarray(imsize)))
         plt.figure(figsize=imsize)
         plt.imshow(self.imfilt, cmap="magma")
@@ -1107,7 +1131,7 @@ class atom_fit(object):
         test = int(len(self.peaks) / 50)
         st.afit.med_dist(self.peaks[0:test, :])
         md = st.afit.med_dist(self.peaks)
-        refined_peaks = np.empty((len(self.peaks), 7), dtype=np.float)
+        refined_peaks = np.empty((len(self.peaks), 7), dtype=float)
 
         # Run once on a smaller dataset to initialize JIT
         st.afit.refine_atoms(
