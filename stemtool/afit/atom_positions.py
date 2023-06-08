@@ -1108,18 +1108,20 @@ class atom_fit(object):
         plt.axis("off")
         self.peaks_check = True
 
-    def refine_peaks(self):
+    def refine_peaks(self,do_test : bool = False):
         if not self.peaks_check:
             raise RuntimeError("Please locate the initial peaks first as peaks_vis()")
-        test = int(len(self.peaks) / 50)
-        st.afit.med_dist(self.peaks[0:test, :])
+        if do_test:
+            test = int(len(self.peaks) / 50)
+            st.afit.med_dist(self.peaks[0:test, :])
         md = st.afit.med_dist(self.peaks)
         refined_peaks = np.empty((len(self.peaks), 7), dtype=float)
 
-        # Run once on a smaller dataset to initialize JIT
-        st.afit.refine_atoms(
-            self.imcleaned, self.peaks[0:test, :], refined_peaks[0:test, :], md
-        )
+        if do_test:
+            # Run once on a smaller dataset to initialize JIT
+            st.afit.refine_atoms(
+                self.imcleaned, self.peaks[0:test, :], refined_peaks[0:test, :], md
+            )
 
         # Run the JIT compiled faster code on the full dataset
         refine_atoms(self.imcleaned, self.peaks, refined_peaks, md, parallel = 'multithread')
