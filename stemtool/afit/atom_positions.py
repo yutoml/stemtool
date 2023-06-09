@@ -117,7 +117,7 @@ def find_peaks_with_fm2d(data_image : np.ndarray, dist : float = 10, thresh : fl
     from findmaxima2d import find_maxima,find_local_maxima
     local_max = find_local_maxima(data_image_8bit)
     y, x, _ = find_maxima(data_image_8bit,local_max,thresh*255)
-    data_peaks = np.array(list(zip(y,x)))
+    data_peaks = np.array([peak for peak in zip(y,x) if peak[0] > 0 and peak[1] > 0 and peak[0] <= data_image.shape[0] and peak[1] <= data_image.shape[1]])
     
     # peakがボーダーにのっていないことを確認
     data_peaks = [peak for peak in data_peaks if peak[0] > 0 and peak[1] > 0 and peak[0] <= data_image.shape[0] and peak[1] <= data_image.shape[1]]
