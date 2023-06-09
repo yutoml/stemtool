@@ -119,6 +119,10 @@ def find_peaks_with_fm2d(data_image : np.ndarray, dist : float = 10, thresh : fl
     y, x, _ = find_maxima(data_image_8bit,local_max,thresh*255)
     data_peaks = np.array(list(zip(y,x)))
     
+    # peakがボーダーにのっていないことを確認
+    data_peaks = [peak for peak in data_peaks if peak[0] > 0 and peak[1] > 0 and peak[0] <= data_image.shape[0] and peak[1] <= data_image.shape[1]]
+    
+    
     peak_mask = np.zeros_like(data_image, dtype=bool)
     peak_mask[tuple(data_peaks.T)] = True
     
