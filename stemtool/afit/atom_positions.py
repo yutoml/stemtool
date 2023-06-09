@@ -80,7 +80,7 @@ def find_peaks_with_skfeat(data_image : np.ndarray, dist : float = 10, thresh : 
     return peaks 
 
 
-def find_peaks_with_fm2d(data_image : np.ndarray, dist : float = 10, thresh : float = 0.1):
+def find_peaks_with_fm2d(data_image : np.ndarray, dist : float = 10, thresh : float = 0.1,mergin : int = 3):
     """
     Find atom maxima pixels in images with findmaxima2d by dwaithe
 
@@ -95,6 +95,9 @@ def find_peaks_with_fm2d(data_image : np.ndarray, dist : float = 10, thresh : fl
                 The cutoff intensity value below which a peak
                 will not be detected
                 Default is 0.1
+    thresh:     int
+                the mergin between peak and border of image
+                Default is 3
 
     Returns
     -------
@@ -118,7 +121,7 @@ def find_peaks_with_fm2d(data_image : np.ndarray, dist : float = 10, thresh : fl
     local_max = find_local_maxima(data_image_8bit)
     y, x, _ = find_maxima(data_image_8bit,local_max,thresh*255)
     # peakがボーダーにのっていないことを確認
-    data_peaks = np.array([peak for peak in zip(y,x) if peak[0] > 0 and peak[1] > 0 and peak[0] < data_image.shape[0]-1 and peak[1] < data_image.shape[1]-1])
+    data_peaks = np.array([peak for peak in zip(y,x) if peak[0] > mergin and peak[1] > mergin and peak[0] < data_image.shape[0]-1-mergin and peak[1] < data_image.shape[1]-1-mergin])
     
 
     
