@@ -26,7 +26,112 @@ def remove_close_vals(input_arr, limit):
     return result
 
 
-def peaks_vis(data_image, dist=10, thresh=0.1, imsize=(20, 20)):
+def find_peaks_with_skfeat(data_image : np.ndarray, dist : float = 10, thresh : float = 0.1):
+    """
+    Find atom maxima pixels in images
+
+    Parameters
+    ----------
+    data_image: ndarray
+                Original atomic resolution image
+    dist:       int
+                Average distance between neighboring peaks
+                Default is 10
+    thresh:     float
+                The cutoff intensity value below which a peak
+                will not be detected
+                Default is 0.1
+
+    Returns
+    -------
+    peaks: ndarray
+           List of peak positions as y, x
+
+    Notes
+    -----
+    This is a wrapper around the skimage peak finding
+    module which finds the peaks with a given threshold
+    value and an inter-peak separation.
+
+    :Authors:
+    Debangshu Mukherjee <mukherjeed@ornl.gov>
+    Yuto Ito <ito@stem.t.u-tokyo.ac.jp>
+    """
+    data_image = (data_image - np.amin(data_image)) / (
+        np.amax(data_image) - np.amin(data_image)
+    )
+    thresh_arr = np.array(data_image > thresh, dtype=float)
+    data_thresh = (data_image * thresh_arr)
+    data_thresh = data_thresh / (1 - thresh)
+    data_peaks = skfeat.peak_local_max(
+        data_thresh, min_distance=int(dist / 3)
+    )
+    # 新しいscipyではmaskを返してくれなくなったので自作
+    peak_mask = np.zeros_like(data_thresh, dtype=bool)
+    peak_mask[tuple(data_peaks.T)] = True
+    
+    peak_labels = scnd.measurements.label(peak_mask)[0]
+    merged_peaks = scnd.measurements.center_of_mass(
+        peak_mask, peak_labels, range(1, np.max(peak_labels) + 1)
+    )
+    peaks = np.array(merged_peaks)
+    peaks = remove_close_vals(peaks, dist)
+
+    return peaks 
+
+
+def find_peaks_with_fm2d(data_image : np.ndarray, dist : float = 10, thresh : float = 0.1):
+    """
+    Find atom maxima pixels in images with findmaxima2d by dwaithe
+
+    Parameters
+    ----------
+    data_image: ndarray
+                Original atomic resolution image
+    dist:       int
+                Average distance between neighboring peaks
+                Default is 10
+    thresh:     float
+                The cutoff intensity value below which a peak
+                will not be detected
+                Default is 0.1
+
+    Returns
+    -------
+    peaks: ndarray
+           List of peak positions as y, x
+
+    Notes
+    -----
+    This is a wrapper around the findmaxima2d peak finding
+    module which finds the peaks with a given height of 
+    peak and an inter-peak separation. 
+
+    :Authors:
+    Yuto Ito <ito@stem.t.u-tokyo.ac.jp>
+    """
+    data_image = (data_image - np.amin(data_image)) / (
+        np.amax(data_image) - np.amin(data_image)
+    )
+    data_image_8bit = data_image * 255
+    from findmaxima2d import find_maxima,find_local_maxima
+    local_max = find_local_maxima(data_image_8bit)
+    y, x, _ = find_maxima(data_image_8bit,local_max,thresh*255)
+    data_peaks = np.array(list(zip(y,x)))
+    
+    peak_mask = np.zeros_like(data_image, dtype=bool)
+    peak_mask[tuple(data_peaks.T)] = True
+    
+    peak_labels = scnd.measurements.label(peak_mask)[0]
+    merged_peaks = scnd.measurements.center_of_mass(
+        peak_mask, peak_labels, range(1, np.max(peak_labels) + 1)
+    )
+    peaks = np.array(merged_peaks)
+    peaks = remove_close_vals(peaks, dist)
+    
+    return peaks
+
+def peaks_vis(data_image, dist=10, thresh=0.1, imsize=(20, 20), method : str = "skfeat"):
     """
     Find atom maxima pixels in images
 
@@ -44,6 +149,9 @@ def peaks_vis(data_image, dist=10, thresh=0.1, imsize=(20, 20)):
     imsize:     ndarray
                 Size of the display image
                 Default is (20,20)
+    method:     str
+                The choice of methods, skfeat or findmaxima2d(fm2d)
+                Default is skfeat
 
     Returns
     -------
@@ -52,9 +160,8 @@ def peaks_vis(data_image, dist=10, thresh=0.1, imsize=(20, 20)):
 
     Notes
     -----
-    This is a wrapper around the skimage peak finding
-    module which finds the peaks with a given threshold
-    value and an inter-peak separation. The function
+    This is a wrapper around the peak finding
+    modules and an inter-peak separation. The function
     additionally plots the peak positions on the original
     image thus users can modify the input values of
     threshold and distance to ensure the right peaks are
@@ -62,23 +169,9 @@ def peaks_vis(data_image, dist=10, thresh=0.1, imsize=(20, 20)):
 
     :Authors:
     Debangshu Mukherjee <mukherjeed@ornl.gov>
+    Yuto Ito <ito@stem.t.u-tokyo.ac.jp>
     """
-    data_image = (data_image - np.amin(data_image)) / (
-        np.amax(data_image) - np.amin(data_image)
-    )
-    thresh_arr = np.array(data_image > thresh, dtype=float)
-    data_thresh = (data_image * thresh_arr) - thresh
-    data_thresh[data_thresh < 0] = 0
-    data_thresh = data_thresh / (1 - thresh)
-    data_peaks = skfeat.peak_local_max(
-        data_thresh, min_distance=int(dist / 3)
-    )
-    peak_labels = scnd.measurements.label(data_peaks)[0]
-    merged_peaks = scnd.measurements.center_of_mass(
-        data_peaks, peak_labels, range(1, np.max(peak_labels) + 1)
-    )
-    peaks = np.array(merged_peaks)
-    peaks = remove_close_vals(peaks, dist)
+    peaks = find_peaks_with_skfeat(data_image,dist,thresh)
     plt.figure(figsize=imsize)
     plt.imshow(data_image)
     plt.scatter(peaks[:, 1], peaks[:, 0], c="b", s=15)
@@ -1062,7 +1155,7 @@ class atom_fit(object):
         plt.ylabel("Distance along Y-axis (" + self.calib_units + ")", fontsize=fsize)
         self.reference_check = True
 
-    def peaks_vis(self, dist, thresh, gfilt=2, imsize=(15, 15), spot_color="c"):
+    def peaks_vis(self, dist, thresh, gfilt=2, imsize=(15, 15), spot_color="c",method : str = 'skfeat'):
         """局所極大を見つける
 
         Args:
@@ -1071,31 +1164,23 @@ class atom_fit(object):
             gfilt (int, optional): _description_. Defaults to 2.
             imsize (tuple, optional): _description_. Defaults to (15, 15).
             spot_color (str, optional): _description_. Defaults to "c".
+            method (str, optional): choice of methods("skfeat" or "fm2d"). Default to "skfeat"
         """
-        if not self.reference_check:
-            self.ref_reg = np.ones_like(self.imcleaned, dtype=bool)
+
         pixel_dist = dist / self.calib
         self.imfilt = scnd.gaussian_filter(self.imcleaned, gfilt)
-        self.threshold = thresh
-        self.data_thresh = ((self.imfilt * self.ref_reg) - self.threshold) / (
-            1 - self.threshold
-        )
-        self.data_thresh[self.data_thresh < 0] = 0
-        data_peaks = skfeat.peak_local_max(
-            self.data_thresh, min_distance=int(pixel_dist / 3)
-        )
-        # 新しいscipyではmaskを返してくれなくなったので自作
-        peak_mask = np.zeros_like(self.data_thresh, dtype=bool)
-        peak_mask[tuple(data_peaks.T)] = True
-        
-        # labelは連続した領域に番号付けする
-        peak_labels = scnd.measurements.label(peak_mask)[0]
-        # center_of_massは上記labelで判定された領域それぞれの重心を求める
-        merged_peaks = scnd.measurements.center_of_mass(
-            peak_mask, peak_labels, range(1, np.max(peak_labels) + 1)
-        )
-        peaks = np.array(merged_peaks)
-        self.peaks = (st.afit.remove_close_vals(peaks, pixel_dist)).astype(float)
+        # 判定するべき範囲が指定されていない場合は、画像の全域が判定するべき範囲であるとする
+        if not self.reference_check:
+            self.ref_reg = np.ones_like(self.imcleaned, dtype=bool)
+        # 判定するべき範囲以外は0にする
+        data_ref = self.imfilt * self.ref_reg
+
+        if method == "skfeat":
+            self.peaks = find_peaks_with_skfeat(data_ref,pixel_dist,thresh)
+        elif method == "fm2d":
+            self.peaks = find_peaks_with_fm2d(data_ref,pixel_dist,thresh)
+        else:
+            raise ValueError("You should choose one of the methods(skfeat or fm2d)")
         spot_size = int(0.5 * np.mean(np.asarray(imsize)))
         plt.figure(figsize=imsize)
         plt.imshow(self.imfilt, cmap="magma")
