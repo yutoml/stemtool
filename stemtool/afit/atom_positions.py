@@ -919,7 +919,7 @@ def refine_atoms(image_data, positions, ref_arr, med_dist, parallel : str = None
         for ii in np.arange(len(positions)):
             pos_x = positions[ii, 1]
             pos_y = positions[ii, 0]
-            refined_ii = st.util.fit_gaussian2D_mask(1 + image_data, pos_x, pos_y, med_dist)
+            refined_ii = st.util.fit_gaussian2D_mask(image_data, pos_x, pos_y, med_dist)
             ref_arr[ii, 0:2] = np.flip(refined_ii[0:2])
             ref_arr[ii, 2:6] = refined_ii[2:6]
             ref_arr[ii, -1] = refined_ii[-1] - 1
@@ -928,10 +928,10 @@ def refine_atoms(image_data, positions, ref_arr, med_dist, parallel : str = None
         from tqdm import tqdm
         import itertools
         import os
-        print("parallel calc ready")
+        print(f"parallel calc ready, max_workers = {os.cpu_count() // 2}")
         with ProcessPoolExecutor(max_workers=os.cpu_count() // 2) as executor:  
             # itertools.repeatをもちいてメモリを削減
-            result = list(tqdm(executor.map(st.util.fit_gaussian2D_mask, itertools.repeat(1+image_data),[pos[1] for pos in positions],[pos[0] for pos in positions],itertools.repeat(med_dist)),desc="parallel calc started" ,total=len(positions)))
+            result = list(tqdm(executor.map(st.util.fit_gaussian2D_mask, itertools.repeat(image_data),[pos[1] for pos in positions],[pos[0] for pos in positions],itertools.repeat(med_dist)),desc="parallel calc started" ,total=len(positions)))
         for ii,refined_ii in enumerate(result):
             ref_arr[ii, 0:2] = np.flip(refined_ii[0:2])
             ref_arr[ii, 2:6] = refined_ii[2:6]

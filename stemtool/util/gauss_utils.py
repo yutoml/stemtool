@@ -275,6 +275,8 @@ def fit_gaussian2D_mask(
         ftol=0.01,
         xtol=0.01,
     )
+    
+    # 画像を正規化したので元に戻す
     if center_type == "minima":
         popt[-1] = (popt[-1] * (mi_min - mi_max)) + mi_max
     popt[-1] = (popt[-1] * (mi_max - mi_min)) + mi_min
