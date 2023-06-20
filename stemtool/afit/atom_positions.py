@@ -1164,18 +1164,29 @@ class atom_fit(object):
         plt.ylabel("Distance along Y-axis (" + self.calib_units + ")", fontsize=fsize)
         self.reference_check = True
 
-    def peaks_vis(self, dist, thresh, gfilt=2, imsize=(15, 15), spot_color="c",method : str = 'skfeat'):
-        """局所極大を見つける
+    def find_initial_peak(self, dist, thresh, gfilt=2, imsize=(15, 15), spot_color="c",method : str = 'skfeat'):
+        """のちのピークフィッティングで使う初期ピーク位置を極大値として探索する
 
-        Args:
-            dist (_type_): _description_
-            thresh (_type_): _description_
-            gfilt (int, optional): _description_. Defaults to 2.
-            imsize (tuple, optional): _description_. Defaults to (15, 15).
-            spot_color (str, optional): _description_. Defaults to "c".
-            method (str, optional): choice of methods("skfeat" or "fm2d"). Default to "skfeat"
+        Parameters
+        ----------
+        dist : _type_
+            _description_
+        thresh : _type_
+            _description_
+        gfilt : int, optional
+            _description_, by default 2
+        imsize : tuple, optional
+            _description_, by default (15, 15)
+        spot_color : str, optional
+            _description_, by default "c"
+        method : str, optional
+            _description_, by default 'skfeat'
+
+        Raises
+        ------
+        ValueError
+            _description_
         """
-
         pixel_dist = dist / self.calib
         self.imfilt = scnd.gaussian_filter(self.imcleaned, gfilt)
         # 判定するべき範囲が指定されていない場合は、画像の全域が判定するべき範囲であるとする
@@ -1190,6 +1201,19 @@ class atom_fit(object):
             self.peaks = find_peaks_with_fm2d(data_ref,pixel_dist,thresh)
         else:
             raise ValueError("You should choose one of the methods(skfeat or fm2d)")
+        self.peaks_check = True
+        
+    def peaks_vis(self, imsize=(15, 15), spot_color="c"):
+        """initial_peaksを表示する
+
+        Args:
+            dist (_type_): _description_
+            thresh (_type_): _description_
+            gfilt (int, optional): _description_. Defaults to 2.
+            imsize (tuple, optional): _description_. Defaults to (15, 15).
+            spot_color (str, optional): _description_. Defaults to "c".
+            method (str, optional): choice of methods("skfeat" or "fm2d"). Default to "skfeat"
+        """
         spot_size = int(0.5 * np.mean(np.asarray(imsize)))
         plt.figure(figsize=imsize)
         plt.imshow(self.imfilt, cmap="magma")
@@ -1200,7 +1224,7 @@ class atom_fit(object):
         scalebar.color = "k"
         plt.gca().add_artist(scalebar)
         plt.axis("off")
-        self.peaks_check = True
+        
 
     def refine_peaks(self,do_test : bool = False):
         if not self.peaks_check:
