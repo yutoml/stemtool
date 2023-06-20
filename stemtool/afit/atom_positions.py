@@ -1249,7 +1249,7 @@ class atom_fit(object):
     
     def mpfit(self):
         results = mpfit(self.imcleaned, self.peaks)
-        self.refined_peaks = np.array([np.array([result["x_mpfit"],result["y_mpfit"]]) for result in results])
+        self.refined_peaks = np.array([np.array([result["y_mpfit"],result["x_mpfit"]]) for result in results])
         self.refining_check = True
         return results
     
