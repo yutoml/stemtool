@@ -184,13 +184,71 @@ def peaks_vis(data_image, dist=10, thresh=0.1, imsize=(20, 20), method : str = "
     return peaks
 
 
+def mpfit_subroutine(main_image : np.ndarray,xx : np.ndarray,yy : np.ndarray,xstart : float,ystart : float,med_dist : float, peak_runs :int, tol_val : float,cut_point : float):
+    sub_y = np.abs(yy - ystart) < med_dist # 関心領域でTrueとなるy座標
+    sub_x = np.abs(xx - xstart) < med_dist # 関心領域でTrueとなるx座標
+    sub = np.logical_and(sub_x, sub_y) # 関心領域でTrueとなるx,y座標
+    xvals = xx[sub]
+    yvals = yy[sub]
+    zvals = main_image[sub] # 関心領域の画像データ
+    zcalc = np.zeros_like(zvals) # gaussianフィッティングで得られた強度
+    cvals = np.zeros((peak_runs, 4), dtype=float)
+    result = {"peak_runs" : []}
+    for ii in np.arange(peak_runs):
+        zvals = zvals - zcalc
+        zgaus = (zvals - np.amin(zvals)) / (np.amax(zvals) - np.amin(zvals))
+        mask_radius = med_dist
+        xy = (xvals, yvals)
+        initial_guess = st.util.initialize_gauss2D(xvals, yvals, zgaus)
+        lower_bound = (
+            (initial_guess[0] - med_dist),
+            (initial_guess[1] - med_dist),
+            -180,
+            0,
+            0,
+            ((-2.5) * initial_guess[5]),
+        )
+        upper_bound = (
+            (initial_guess[0] + med_dist),
+            (initial_guess[1] + med_dist),
+            180,
+            (2.5 * mask_radius),
+            (2.5 * mask_radius),
+            (2.5 * initial_guess[5]),
+        )
+        popt, _ = spo.curve_fit(
+            st.util.gaussian_2D_function,
+            xy,
+            zgaus,
+            initial_guess,
+            bounds=(lower_bound, upper_bound),
+            ftol=tol_val,
+            xtol=tol_val,
+        )
+        result[f"peak_runs"].append(popt)
+        cvals[ii, 1] = popt[0]
+        cvals[ii, 0] = popt[1]
+        cvals[ii, -1] = popt[-1] * (np.amax(zvals) - np.amin(zvals))
+        cvals[ii, 2] = (
+            ((popt[0] - xstart) ** 2) + ((popt[1] - ystart) ** 2)
+        ) ** 0.5
+        zcalc = st.util.gaussian_2D_function(
+            xy, popt[0], popt[1], popt[2], popt[3], popt[4], popt[5]
+        )
+        zcalc = (zcalc * (np.amax(zvals) - np.amin(zvals))) + np.amin(zvals)
+    required_cvals = cvals[:, 2] < (cut_point * med_dist)
+    total = np.sum(cvals[required_cvals, 3])
+    result["y_mpfit"] = np.sum(cvals[required_cvals, 0] * cvals[required_cvals, 3]) / total
+    result["x_mpfit"] = np.sum(cvals[required_cvals, 1] * cvals[required_cvals, 3]) / total
+    return result
+
+
 def mpfit(
     main_image,
     initial_peaks,
     peak_runs=16,
     cut_point=2 / 3,
     tol_val=0.01,
-    peakparams=False,
 ):
     """
     Multi-Gaussian Peak Refinement (mpfit)
@@ -237,77 +295,22 @@ def mpfit(
          mpfit: a robust method for fitting atomic resolution images
          with multiple Gaussian peaks. Adv Struct Chem Imag 6, 1 (2020).
     """
+    from concurrent.futures import ProcessPoolExecutor
+    from tqdm import tqdm
+    import itertools
+    import os
     warnings.filterwarnings("ignore")
     dist = np.zeros(len(initial_peaks))
     for ii in np.arange(len(initial_peaks)):
         ccd = np.sum(((initial_peaks[:, 0:2] - initial_peaks[ii, 0:2]) ** 2), axis=1)
         dist[ii] = (np.amin(ccd[ccd > 0])) ** 0.5
-    med_dist = np.median(dist)
-    mpfit_peaks = np.zeros_like(initial_peaks, dtype=float)
+    med_dist = np.median(dist) # med_distの計算
     yy, xx = np.mgrid[0 : main_image.shape[0], 0 : main_image.shape[1]]
-    cvals = np.zeros((peak_runs, 4), dtype=float)
-    peak_vals = np.zeros((len(initial_peaks), peak_runs, 4), dtype=float)
-    for jj in np.arange(len(initial_peaks)):
-        ystart = initial_peaks[jj, 0]
-        xstart = initial_peaks[jj, 1]
-        sub_y = np.abs(yy - ystart) < med_dist
-        sub_x = np.abs(xx - xstart) < med_dist
-        sub = np.logical_and(sub_x, sub_y)
-        xvals = xx[sub]
-        yvals = yy[sub]
-        zvals = main_image[sub]
-        zcalc = np.zeros_like(zvals)
-        for ii in np.arange(peak_runs):
-            zvals = zvals - zcalc
-            zgaus = (zvals - np.amin(zvals)) / (np.amax(zvals) - np.amin(zvals))
-            mask_radius = med_dist
-            xy = (xvals, yvals)
-            initial_guess = st.util.initialize_gauss2D(xvals, yvals, zgaus)
-            lower_bound = (
-                (initial_guess[0] - med_dist),
-                (initial_guess[1] - med_dist),
-                -180,
-                0,
-                0,
-                ((-2.5) * initial_guess[5]),
-            )
-            upper_bound = (
-                (initial_guess[0] + med_dist),
-                (initial_guess[1] + med_dist),
-                180,
-                (2.5 * mask_radius),
-                (2.5 * mask_radius),
-                (2.5 * initial_guess[5]),
-            )
-            popt, _ = spo.curve_fit(
-                st.util.gaussian_2D_function,
-                xy,
-                zgaus,
-                initial_guess,
-                bounds=(lower_bound, upper_bound),
-                ftol=tol_val,
-                xtol=tol_val,
-            )
-            cvals[ii, 1] = popt[0]
-            cvals[ii, 0] = popt[1]
-            cvals[ii, -1] = popt[-1] * (np.amax(zvals) - np.amin(zvals))
-            cvals[ii, 2] = (
-                ((popt[0] - xstart) ** 2) + ((popt[1] - ystart) ** 2)
-            ) ** 0.5
-            zcalc = st.util.gaussian_2D_function(
-                xy, popt[0], popt[1], popt[2], popt[3], popt[4], popt[5]
-            )
-            zcalc = (zcalc * (np.amax(zvals) - np.amin(zvals))) + np.amin(zvals)
-        required_cvals = cvals[:, 2] < (cut_point * med_dist)
-        total = np.sum(cvals[required_cvals, 3])
-        y_mpfit = np.sum(cvals[required_cvals, 0] * cvals[required_cvals, 3]) / total
-        x_mpfit = np.sum(cvals[required_cvals, 1] * cvals[required_cvals, 3]) / total
-        mpfit_peaks[jj, 0:2] = np.asarray((y_mpfit, x_mpfit))
-        peak_vals[jj, :, :] = cvals
-    if peakparams:
-        return mpfit_peaks, peak_vals
-    else:
-        return mpfit_peaks
+
+    with ProcessPoolExecutor(max_workers=os.cpu_count() // 2) as executor:  
+        # itertools.repeatをもちいてメモリを削減
+        results = list(tqdm(executor.map(mpfit_subroutine, itertools.repeat(main_image),itertools.repeat(xx),itertools.repeat(yy),[pos[1] for pos in initial_peaks],[pos[0] for pos in initial_peaks],itertools.repeat(med_dist),itertools.repeat(peak_runs),itertools.repeat(tol_val),itertools.repeat(cut_point)),desc="parallel calc started" ,total=len(initial_peaks)))
+    return results
 
 
 def mpfit_voronoi(
@@ -1218,6 +1221,7 @@ class atom_fit(object):
         refine_atoms(self.imcleaned, self.peaks, refined_peaks, md, parallel = 'multithread')
         self.refined_peaks = refined_peaks
         self.refining_check = True
+    
 
     def show_peaks(self, imsize=(15, 15), style="together"):
         if not self.refining_check:
