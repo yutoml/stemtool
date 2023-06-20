@@ -1222,6 +1222,12 @@ class atom_fit(object):
         self.refined_peaks = refined_peaks
         self.refining_check = True
     
+    
+    def mpfit(self):
+        results = mpfit(self.imcleaned, self.peaks)
+        self.refined_peaks = [[result["x_mpfit"],result["y_mpfit"]] for result in results]
+        return results
+    
 
     def show_peaks(self, imsize=(15, 15), style="together"):
         if not self.refining_check:
