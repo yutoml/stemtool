@@ -1164,7 +1164,7 @@ class atom_fit(object):
         plt.ylabel("Distance along Y-axis (" + self.calib_units + ")", fontsize=fsize)
         self.reference_check = True
 
-    def find_initial_peak(self, dist, thresh, gfilt=2, imsize=(15, 15), spot_color="c",method : str = 'skfeat'):
+    def find_initial_peak(self, dist, thresh, gfilt=2,method : str = 'skfeat'):
         """のちのピークフィッティングで使う初期ピーク位置を極大値として探索する
 
         Parameters
