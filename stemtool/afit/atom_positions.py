@@ -1226,6 +1226,7 @@ class atom_fit(object):
     def mpfit(self):
         results = mpfit(self.imcleaned, self.peaks)
         self.refined_peaks = [[result["x_mpfit"],result["y_mpfit"]] for result in results]
+        self.refining_check = True
         return results
     
 
