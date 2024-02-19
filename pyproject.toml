@@ -38,6 +38,7 @@ dependencies = [
     "distributed >= 2021.9.0",
     "pyFFTW >= 0.13.1",
     "nptyping >= 2.5.0",
+    "zarr >= 2.17.0",
 ]
 
 [project.urls]
