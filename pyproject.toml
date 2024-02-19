@@ -35,7 +35,8 @@ dependencies = [
     "ase >= 3.16.0",
     "h5py >= 3.7.0",
     "dask >= 2021.9.0",
-    "pyFFTW >= 0.13.1"
+    "pyFFTW >= 0.13.1",
+    "nptyping >= 2.5.0",
 ]
 
 [project.urls]
