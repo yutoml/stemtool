@@ -8,7 +8,7 @@ import matplotlib_scalebar.scalebar as mpss
 import stemtool as st
 import warnings
 from collections import UserList
-import json
+import math
 import os
 
 
@@ -52,7 +52,7 @@ class Peak():
         if not isinstance(other, self.__class__):
             raise TypeError("Value 'other' should be instance of class 'Peak'")
 
-        return ((self.x - other.x)**2 + (self.y - other.y)**2) ** 0.5
+        return np.linalg.norm([self.x - other.x, self.y - other.y])
 
     def get_angle(self, other1, other2):
         """3つのpeakによって形成される角度を返す。
@@ -103,6 +103,16 @@ class Peaks(UserList):
             else:
                 self.data = list(initlist)
 
+    def __iter__(self):
+        count_max = len(self.data)
+        count = 0
+        while True:
+            if count >= count_max:
+                break
+            else:
+                count += 1
+                yield self.data[count - 1]
+
     def calc_neighbers(self, threshold: float = 1, division: bool = False):
         """thresholdより近いのピーク間を見つける
 
@@ -114,6 +124,10 @@ class Peaks(UserList):
             ピークを分割して探索するピークを絞る。ピークが非常に多い場合は効果的, by default False
 
         """
+        # 最初に近接原子間のパラメータを初期化する(再度計算していた場合に備えて)。
+        for target in self.data:
+            target.neighbers = []
+
         if division:
             # Peakをグループ分けして、計算量を減らす。
             # 各グループは1辺がthreshold以上の大きさの四角形を画像に敷き詰めたときにどの四角形に含まれるか、という形で分割される
@@ -121,26 +135,29 @@ class Peaks(UserList):
             x_list = [peak.x for peak in self.data]
             x_min, x_max = np.min(x_list), np.max(x_list)
             x_range = x_max - x_min
-            x_division = np.floor(x_range / threshold)
-            x_length = x_range / x_division
+            x_division = math.floor(x_range / threshold)
+            x_length = float(x_range / x_division)
 
             y_list = [peak.y for peak in self.data]
             y_min, y_max = np.min(y_list), np.max(y_list)
             y_range = y_max - y_min
-            y_division = np.floor(y_range / threshold)
-            y_length = y_range / y_division
+            y_division = math.floor(y_range / threshold)
+            y_length = float(y_range / y_division)
 
             groups = [[[] for j in range(x_division)]
                       for i in range(y_division)]
 
             for peak in self.data:
-                groups[(peak.y - y_min) % y_length][(peak.x - x_min) %
-                                                    x_length].append(peak)
+                y_index = round((peak.y - y_min) //
+                                y_length) if peak.y != y_max else y_division - 1
+                x_index = round((peak.x - x_min) //
+                                x_length) if peak.x != x_max else x_division - 1
+                groups[y_index][x_index].append(peak)
         else:
             y_division = 1
             x_division = 1
             groups = [[self.data]]
-            processed = []
+        processed = []
 
         def find_neighber_group_indices(y, x):
             """隣接するグループのインデックスを返す"""
@@ -156,7 +173,6 @@ class Peaks(UserList):
             return neighber_group_indices
 
         neighbers_count = []
-
         # グループ分けが終わったので、隣接ピークを見つける
         for y, row in enumerate(groups):
             for x, group in enumerate(row):
@@ -164,7 +180,6 @@ class Peaks(UserList):
 
                 while (group):
                     target = group.pop(0)
-                    i = 0
                     for neighber_group_index in neighber_group_indices:
                         for other in groups[neighber_group_index[0]][neighber_group_index[1]]:
                             if id(target) == id(other):  # targetとotherが同じ場合はスキップ
@@ -173,11 +188,11 @@ class Peaks(UserList):
                             if target.get_distance(other) < threshold:
                                 target.neighbers.append(other)
                                 other.neighbers.append(target)
-                                i += 1
-                    neighbers_count.append(i)
                     processed.append(target)
+                    neighbers_count.append(len(target.neighbers))
         self.data = processed
         print(f"Average_neighbers_num : {np.average(neighbers_count)}")
+        return neighbers_count
 
 
 class atom_fit(object):
@@ -404,28 +419,26 @@ class atom_fit(object):
                    self.calib_units + ")", fontsize=fsize)
         self.reference_check = True
 
-    def find_initial_peak(self, dist, thresh, gfilt=2, method: str = 'skfeat'):
+    def find_initial_peak(self, dist: float, thresh, gfilt=2, method: str = 'skfeat'):
         """のちのピークフィッティングで使う初期ピーク位置を極大値として探索する
 
         Parameters
         ----------
-        dist : _type_
-            _description_
-        thresh : _type_
-            _description_
+        dist : float
+            peak間距離の閾値(pix単位ではなく、calib_unitsで指定した単位)
+            この値より近いpeakは削除される。
+        thresh : float
+            peakの高さの閾値. 0 ~ 1.0の値で指定する
         gfilt : int, optional
-            _description_, by default 2
-        imsize : tuple, optional
-            _description_, by default (15, 15)
-        spot_color : str, optional
-            _description_, by default "c"
+            ガウシアンフィルターをかける範囲(pix単位), by default 2
         method : str, optional
-            _description_, by default 'skfeat'
+            peak探索の方法, by default 'skfeat'
+            MaximaFinderの場合は'fm2d'を指定する。
 
         Raises
         ------
         ValueError
-            _description_
+            methodで存在しないメソッドを選択した場合
         """
         pixel_dist = dist / self.calib
         self.imfilt = scnd.gaussian_filter(self.imcleaned, gfilt)
@@ -452,9 +465,12 @@ class atom_fit(object):
     def peaks_vis(self, imsize=(15, 15), spot_color="c"):
         """initial_peaksを表示する
 
-        Args:
-            imsize (tuple, optional): _description_. Defaults to (15, 15).
-            spot_color (str, optional): _description_. Defaults to "c".
+        Parameters
+        ----------
+        imsize : tuple, optional
+            画像のサイズ(インチ単位), by default (15, 15)
+        spot_color : str, optional
+            peak表示に使用する色, by default "c"
         """
         spot_size = int(0.5 * np.mean(np.asarray(imsize)))
         plt.figure(figsize=imsize)
@@ -468,7 +484,7 @@ class atom_fit(object):
         plt.gca().add_artist(scalebar)
         plt.axis("off")
 
-    def refine_peaks(self, do_test: bool = False, parallel: str | None = "multiprocessing"):
+    def refine_peaks(self, do_test: bool = False, parallel: str | None = "multiprocessing", use_filtered: bool = False):
         if not self.peaks_check:
             raise RuntimeError(
                 "Please locate the initial peaks first as peaks_vis()")
@@ -477,22 +493,79 @@ class atom_fit(object):
             get_med_dist(self.peaks[0:test])
         md = get_med_dist(self.peaks)
 
+        if use_filtered:
+            img = self.imfilt
+        else:
+            img = self.imcleaned
+
         if do_test:
             # Run once on a smaller dataset to initialize JIT
             refined_positions = refine_atoms(
-                self.imcleaned, self.peaks[0:test], md
+                img, self.peaks[0:test], md
             )
 
         # Run the JIT compiled faster code on the full dataset
-        refined_positions = refine_atoms(self.imcleaned, self.peaks,
+        refined_positions = refine_atoms(img, self.peaks,
                                          md, parallel=parallel)
         self.refined_positions = refined_positions
         self.refined_peaks = Peaks([Peak(position[0], position[1], intensity=position[-1])
                                     for position in self.refined_positions])
         self.refining_check = True
 
-    def mpfit(self, peak_runs=4, cut_point=1 / 3, tol_val=0.01, md_scale=1, max_workers=os.cpu_count() // 2):
-        results = mpfit(self.imcleaned, self.positions, peak_runs,
+    def mpfit(self, peak_runs=4, cut_point=1 / 3, tol_val=0.01, md_scale=1, max_workers=os.cpu_count() // 2, use_filtered: bool = False):
+        """Multi-Gaussian Peak Refinement (mpfit)
+        ガウシアンフィッティングを複数行うことで、原子の位置を決定する。
+
+        Parameters
+        ----------
+        peak_runs : int, optional
+            Number of multi-Gaussian steps to run, by default 4
+        cut_point : _type_, optional
+            Ratio of distance to the median inter-peak
+            distance. Only Gaussian peaks below this are
+            used for the final estimation, by default 1/3
+        tol_val : float, optional
+            The tolerance value to use for a gaussian estimation, by default 0.01
+        md_scale : int, optional
+            The scale factor for the size of Multi-Gaussian Peak(MGP) fitting area.
+            md_scale = 1.2 means that the MGP fitting is processed with a square 
+            whose length on one side is 1.2 times of the average interatomic distance., by default 1
+        max_workers : int, optional
+            The Number of processers for parallel calculation, by default half of the total CPU cores 
+
+        Returns
+        -------
+        list[dict]
+            The result of mpfit. Structure
+            {
+                "peak_runs" : [
+                    [x, y, theta, sigma_x, sigma_y, amplitude],...
+                ],
+                "y_mpfit" : float, # peak_runsのピークの強さによる加重平均
+                "x_mpfit" : float  # peak_runsのピークの強さによる加重平均
+            }
+
+        Notes
+        -----
+        This is the multiple Gaussian peak fitting technique
+        where the initial atom positions are fitted with a
+        single 2D Gaussian function. The calculated Gaussian is
+        then subsequently subtracted and refined again. The final
+        refined position is the sum of all the positions scaled
+        with the amplitude
+
+        References:
+        -----------
+        1]_, Mukherjee, D., Miao, L., Stone, G. and Alem, N.,
+            mpfit: a robust method for fitting atomic resolution images
+            with multiple Gaussian peaks. Adv Struct Chem Imag 6, 1 (2020).
+        """
+        if use_filtered:
+            img = self.imfilt
+        else:
+            img = self.imcleaned
+
+        results = mpfit(img, self.positions, peak_runs,
                         cut_point, tol_val, md_scale, max_workers)
         self.refined_positions = np.array(
             [np.array([result["y_mpfit"], result["x_mpfit"]]) for result in results])
@@ -501,16 +574,23 @@ class atom_fit(object):
         self.refining_check = True
         return results
 
-    def show_peaks(self, imsize=(15, 15), style="together"):
+    def show_peaks(self, imsize=(15, 15), style="together", use_filtered: bool = False):
+
         if not self.refining_check:
             raise RuntimeError(
                 "Please refine the atom peaks first as refine_peaks()")
+
+        if use_filtered:
+            img = self.imfilt
+        else:
+            img = self.imcleaned
+
         togsize = tuple(np.asarray((2, 1)) * np.asarray(imsize))
-        spot_size = int(np.amin(np.asarray(imsize)))
-        big_size = int(3 * spot_size)
+        spot_size = int(0.5 * np.mean(np.asarray(imsize)))
+        big_size = int(2 * spot_size)
         if style == "together":
             plt.figure(figsize=imsize)
-            plt.imshow(self.imcleaned, cmap="magma")
+            plt.imshow(img, cmap="magma")
             plt.scatter(
                 [peak.x for peak in self.peaks],
                 [peak.y for peak in self.peaks],
@@ -535,7 +615,7 @@ class atom_fit(object):
         else:
             plt.figure(figsize=togsize)
             plt.subplot(1, 2, 1)
-            plt.imshow(self.imcleaned, cmap="magma")
+            plt.imshow(img, cmap="magma")
             plt.scatter(
                 [peak.x for peak in self.peaks],
                 [peak.y for peak in self.peaks],
@@ -552,7 +632,7 @@ class atom_fit(object):
             plt.axis("off")
 
             plt.subplot(1, 2, 2)
-            plt.imshow(self.imcleaned, cmap="magma")
+            plt.imshow(img, cmap="magma")
             plt.scatter(
                 [peak.x for peak in self.refined_peaks],
                 [peak.y for peak in self.refined_peaks],
@@ -769,7 +849,7 @@ def mpfit(
     peak_runs=4,
     cut_point=1 / 3,
     tol_val=0.01,
-    md_scale=1,
+    md_scale=1.0,
     max_workers=os.cpu_count() // 2
 ):
     """
@@ -792,10 +872,10 @@ def mpfit(
     tol_val:        float
                     The tolerance value to use for a gaussian estimation
                     Default is 0.01
-    peakparams:     boolean
-                    If set to True, then the individual Gaussian peaks and
-                    their amplitudes are also returned.
-                    Default is False
+    md_scale:       float
+                    The scale factor for the size of Multi-Gaussian Peak(MGP) fitting area.
+                    md_scale = 1.2 means that the MGP fitting is processed with a square 
+                    whose length on one side is 1.2 times of the average interatomic distance.
 
     Returns
     -------
@@ -820,9 +900,7 @@ def mpfit(
     from concurrent.futures import ProcessPoolExecutor
     from tqdm import tqdm
     import itertools
-    import os
     warnings.filterwarnings("ignore")
-    dist = np.zeros(len(initial_peaks))
 
     med_dist = get_med_dist(initial_peaks) * md_scale
     yy, xx = np.mgrid[0: main_image.shape[0], 0: main_image.shape[1]]
